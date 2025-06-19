@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>犬猫镭射治疗参数计算器</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 700px;
+            margin: auto;
+            background-color: #f4f4f4;
+        }
+        h1, h2 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        fieldset {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        legend {
+            font-weight: bold;
+            color: #555;
+            padding: 0 5px;
+        }
+        label {
+            margin-right: 10px;
+            display: inline-block; /* Helps align radio buttons */
+        }
+        input[type="radio"], input[type="number"] {
+            margin-right: 5px;
+            margin-bottom: 10px; /* Spacing below inputs */
+        }
+         input[type="number"] {
+            width: 80px; /* Adjust width as needed */
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+         }
+        button {
+            padding: 8px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .result-display {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e9ecef;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+        }
+        .result-display p {
+             margin: 5px 0;
+             font-weight: bold;
+        }
+        .result-display span {
+            font-weight: normal;
+            color: #d9534f; /* Highlight result values */
+        }
+         #symptomsContainer label { /* Ensure symptom labels stack */
+            display: block;
+            margin-bottom: 5px;
+        }
+        .disclaimer {
+            font-size: 0.9em;
+            color: #6c757d;
+            text-align: center;
+            margin-top: 15px;
+            font-style: italic;
+        }
+        .warning {
+            color: #dc3545; /* Red color for warning */
+            font-weight: bold;
+            margin-left: 10px;
+            font-size: 0.9em;
+        }
+        #recordSummaryOutput {
+            width: 95%; /* Adjust width as needed */
+            height: 60px; /* Adjust height as needed */
+            font-family: monospace; /* Use monospace for better alignment */
+            font-size: 1em;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+            margin-top: 10px;
+            resize: vertical; /* Allow vertical resize */
+            white-space: pre; /* Preserve spaces and line breaks */
+        }
+        .copy-instruction {
+            font-size: 0.85em;
+            color: #6c757d;
+            margin-bottom: 5px;
+            display: block; /* Ensure it takes its own line */
+        }
+        #copyFeedback {
+            font-size: 0.85em;
+            color: green;
+            margin-left: 10px;
+            font-weight: bold;
+            display: inline-block; /* Keep it next to the textarea */
+            visibility: hidden; /* Hide initially */
+        }
+    </style>
+</head>
+<body>
+
+    <h1>犬猫镭射治疗参数计算器</h1>
+
+    <div class="container">
+        <h2>参数建议</h2>
+        <fieldset>
+            <legend>选择动物体型</legend>
+            <label><input type="radio" name="animalSize" value="小" checked> 小</label>
+            <label><input type="radio" name="animalSize" value="中"> 中</label>
+            <label><input type="radio" name="animalSize" value="大"> 大</label>
+        </fieldset>
+
+        <fieldset>
+            <legend>选择治疗部位</legend>
+            <label><input type="radio" name="treatmentArea" value="皮肤/黏膜" checked> 皮肤/黏膜</label>
+            <label><input type="radio" name="treatmentArea" value="肢端"> 肢端</label>
+            <label><input type="radio" name="treatmentArea" value="肩关节"> 肩关节</label>
+            <label><input type="radio" name="treatmentArea" value="膝关节"> 膝关节</label>
+            <label><input type="radio" name="treatmentArea" value="髋关节/胸腰椎"> 髋关节/胸腰椎</label>
+            <label><input type="radio" name="treatmentArea" value="颈部"> 颈部</label>
+        </fieldset>
+
+        <fieldset>
+            <legend>选择症状</legend>
+            <div id="symptomsContainer">
+                </div>
+        </fieldset>
+
+        <div class="result-display">
+            <p>建议剂量 (J/cm²): <span id="recommendedDosage">--</span></p>
+            <p>建议功率 (W): <span id="recommendedPower">--</span></p>
+        </div>
+        <p class="disclaimer">仅提供参考，请依实际情况自行调整</p>
+    </div>
+
+    <div class="container">
+        <h2>治疗时间计算</h2>
+         <fieldset>
+             <legend>输入参数</legend>
+             <div>
+                 <label for="areaSize">治疗范围大小 (cm²):</label>
+                 <input type="number" id="areaSize" name="areaSize" min="0" step="any">
+             </div>
+             <div>
+                 <label for="dosageInput">剂量 (J/cm²):</label>
+                 <input type="number" id="dosageInput" name="dosageInput" min="0" step="any">
+             </div>
+             <div>
+                 <label for="powerInput">功率 (W):</label>
+                 <input type="number" id="powerInput" name="powerInput" min="0.1" step="any">
+                 <span id="powerWarning" class="warning" style="display: none;">功率较大，请注意安全</span>
+            </div>
+         </fieldset>
+        <button id="calculateTimeBtn">计算时间</button>
+        <div class="result-display">
+            <p>计算结果: <span id="calculatedTime">-- 秒</span></p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>记录摘要</h2>
+        <label class="copy-instruction" for="recordSummaryOutput">点击下方区域复制内容:</label>
+        <textarea id="recordSummaryOutput" readonly rows="3"></textarea>
+        <span id="copyFeedback">已复制!</span>
+    </div>
+
+
+    <script src="script.js"></script>
+</body>
+</html>
