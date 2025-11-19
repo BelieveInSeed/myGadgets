@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VetCardio Mech: Interactive Physiology</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        /* Custom 3D animations */
+        .perspective-container {
+            perspective: 1000px;
+        }
+        .heart-chamber {
+            transform-style: preserve-3d;
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+        }
+        .heart-beat {
+            animation: beat 1s infinite;
+        }
+        @keyframes beat {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        /* Range Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none; 
+            background: transparent; 
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #22d3ee;
+            margin-top: -6px; 
+            cursor: pointer;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #475569;
+            border-radius: 2px;
+        }
+    </style>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-slate-950 text-slate-200 font-sans h-screen overflow-hidden flex flex-col">
+
+    <div id="app" class="flex-1 flex flex-col h-full">
+        
+        <!-- Top Bar -->
+        <header class="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-10 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-cyan-500 rounded-lg flex items-center justify-center text-slate-900 font-bold text-xl">V</div>
+                <div>
+                    <h1 class="font-bold text-lg tracking-wide text-cyan-400">VetCardio Mech</h1>
+                    <p class="text-xs text-slate-400">{{ t('subtitle') }}</p>
+                </div>
+            </div>
+            <button @click="toggleLang" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1 rounded text-sm transition-colors">
+                {{ lang === 'sc' ? '繁體中文' : '简体中文' }}
+            </button>
+        </header>
+
+        <div class="flex flex-1 overflow-hidden">
+            <!-- Sidebar Navigation -->
+            <nav class="w-20 md:w-64 bg-slate-900 border-r border-slate-800 flex-shrink-0 flex flex-col">
+                <button 
+                    v-for="(tab, key) in tabs" 
+                    :key="key"
+                    @click="currentTab = key"
+                    :class="['p-4 text-left border-l-4 transition-all hover:bg-slate-800 flex items-center gap-3', 
+                             currentTab === key ? 'border-cyan-500 bg-slate-800/50 text-cyan-400' : 'border-transparent text-slate-400']"
+                >
+                    <span class="text-xl">{{ tab.icon }}</span>
+                    <span class="hidden md:block font-medium">{{ t(tab.labelKey) }}</span>
+                </button>
+            </nav>
+
+            <!-- Main Content Area -->
+            <main class="flex-1 overflow-y-auto p-6 relative">
+                
+                <!-- Tab A: PV Loop Simulator -->
+                <div v-if="currentTab === 'pvLoop'" class="h-full flex flex-col gap-6">
+                    <div class="flex flex-col lg:flex-row gap-6 h-full">
+                        <!-- Visualizer -->
+                        <div class="flex-1 bg-slate-900 rounded-xl border border-slate-800 p-4 relative flex flex-col">
+                            <h2 class="text-xl font-bold text-cyan-400 mb-4">{{ t('cardiacPump') }} (PV Loop)</h2>
+                            
+                            <!-- SVG Chart -->
+                            <div class="flex-1 relative min-h-[300px]">
+                                <svg viewBox="0 0 400 300" class="w-full h-full drop-shadow-lg">
+                                    <!-- Grid -->
+                                    <g stroke="#334155" stroke-width="0.5" stroke-dasharray="4 4">
+                                        <line x1="40" y1="10" x2="40" y2="260" /> <!-- Y axis -->
+                                        <line x1="40" y1="260" x2="390" y2="260" /> <!-- X axis -->
+                                    </g>
+                                    
+                                    <!-- Labels -->
+                                    <text x="200" y="290" text-anchor="middle" fill="#94a3b8" font-size="12">{{ t('volume') }} (mL)</text>
+                                    <text x="20" y="150" text-anchor="middle" fill="#94a3b8" font-size="12" transform="rotate(-90, 20, 150)">{{ t('pressure') }} (mmHg)</text>
+
+                                    <!-- ESPVR Line (Contractility) -->
+                                    <line 
+                                        x1="40" y1="260" 
+                                        :x2="espvrCoords.x" :y2="espvrCoords.y" 
+                                        stroke="#eab308" stroke-width="2" stroke-dasharray="5 5"
+                                    />
+                                    <text :x="espvrCoords.x - 10" :y="espvrCoords.y - 10" fill="#eab308" font-size="10">ESPVR (Ees)</text>
+
+                                    <!-- EDPVR Curve (Passive Compliance) -->
+                                    <path 
+                                        d="M 40 260 Q 150 258 350 200" 
+                                        fill="none" stroke="#64748b" stroke-width="1.5" opacity="0.5" 
+                                    />
+                                    <text x="350" y="190" fill="#64748b" font-size="10">EDPVR</text>
+
+                                    <!-- The PV Loop -->
+                                    <path 
+                                        :d="pvLoopPath" 
+                                        fill="rgba(34, 211, 238, 0.1)" 
+                                        stroke="#22d3ee" 
+                                        stroke-width="3"
+                                        stroke-linejoin="round"
+                                    />
+
+                                    <!-- Points labels -->
+                                    <circle :cx="pvPoints.A.x" :cy="pvPoints.A.y" r="3" fill="#fff" />
+                                    <text :x="pvPoints.A.x + 5" :y="pvPoints.A.y + 15" fill="#fff" font-size="10">EDV</text>
+                                    
+                                    <circle :cx="pvPoints.C.x" :cy="pvPoints.C.y" r="3" fill="#fff" />
+                                    <text :x="pvPoints.C.x - 25" :y="pvPoints.C.y - 5" fill="#fff" font-size="10">ESV</text>
+
+                                    <!-- Stroke Work Area fill -->
+                                    <text x="200" y="200" text-anchor="middle" fill="rgba(34, 211, 238, 0.5)" font-size="14" font-weight="bold">SW</text>
+                                </svg>
+                            </div>
+
+                            <!-- Dynamic Stats -->
+                            <div class="grid grid-cols-3 gap-4 mt-4 border-t border-slate-800 pt-4">
+                                <div class="bg-slate-800 p-3 rounded text-center relative group cursor-help">
+                                    <div class="text-xs text-slate-400 flex items-center justify-center gap-1 border-b border-dotted border-slate-600 w-max mx-auto pb-0.5 mb-1">
+                                        {{ t('sv') }}
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3 text-slate-500">
+                                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                                            <path d="M9 6a1 1 0 112 0 1 1 0 01-2 0z" />
+                                        </svg>
+                                    </div>
+                                    <div class="text-xl font-bold text-cyan-400">{{ computedSV }} mL</div>
+                                    
+                                    <!-- Tooltip -->
+                                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 border border-slate-600 p-3 rounded-lg shadow-2xl text-xs text-left z-30 hidden group-hover:block">
+                                        <p class="font-bold text-cyan-400 mb-1 text-center border-b border-slate-700 pb-1">SV = EDV - ESV</p>
+                                        <p class="text-slate-300 leading-relaxed text-center">{{ t('svTooltip') }}</p>
+                                        <div class="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-500 font-mono text-center">
+                                            SV ≈ (EDV - V₀) / (1 + Ea/Ees)
+                                        </div>
+                                        <!-- Arrow -->
+                                        <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-600"></div>
+                                    </div>
+                                </div>
+                                <div class="bg-slate-800 p-3 rounded text-center">
+                                    <div class="text-xs text-slate-400">{{ t('ef') }}</div>
+                                    <div class="text-xl font-bold text-green-400">{{ computedEF }}%</div>
+                                </div>
+                                <div class="bg-slate-800 p-3 rounded text-center">
+                                    <div class="text-xs text-slate-400">{{ t('sw') }}</div>
+                                    <div class="text-xl font-bold text-amber-400">{{ computedSW }} erg</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Controls -->
+                        <div class="w-full lg:w-80 bg-slate-900 rounded-xl border border-slate-800 p-6 flex flex-col gap-8 shrink-0">
+                            <!-- Preload -->
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <label class="font-bold text-slate-200">{{ t('preload') }} (EDV)</label>
+                                    <span class="text-cyan-400">{{ pvSettings.preload }} mL</span>
+                                </div>
+                                <input type="range" v-model.number="pvSettings.preload" min="50" max="150" step="1" class="w-full">
+                                <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                                    {{ t('preloadDesc') }}
+                                    <span v-if="pvSettings.preload < 70" class="text-amber-500 block mt-1">{{ t('fluidResponder') }}</span>
+                                </p>
+                            </div>
+
+                            <!-- Afterload -->
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <label class="font-bold text-slate-200">{{ t('afterload') }} (Ea)</label>
+                                    <span class="text-purple-400">{{ pvSettings.afterload }} mmHg/mL</span>
+                                </div>
+                                <input type="range" v-model.number="pvSettings.afterload" min="0.5" max="3.0" step="0.1" class="w-full">
+                                <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                                    {{ t('afterloadDesc') }}
+                                </p>
+                            </div>
+
+                            <!-- Contractility -->
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <label class="font-bold text-slate-200">{{ t('contractility') }} (Ees)</label>
+                                    <span class="text-amber-400">{{ pvSettings.contractility }} mmHg/mL</span>
+                                </div>
+                                <input type="range" v-model.number="pvSettings.contractility" min="0.5" max="4.0" step="0.1" class="w-full">
+                                <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                                    {{ t('contractilityDesc') }}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Clinical Context -->
+                     <div class="bg-slate-800/50 p-4 rounded-lg border-l-4 border-cyan-500">
+                        <h3 class="font-bold text-cyan-400 mb-1">{{ t('clinicalPearl') }}</h3>
+                        <p class="text-sm text-slate-300">{{ t('pvClinicalText') }}</p>
+                    </div>
+                </div>
+
+                <!-- Tab B: Electrical -->
+                <div v-if="currentTab === 'electrical'" class="h-full flex flex-col gap-6">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-2xl font-bold text-cyan-400">{{ t('elecMech') }}</h2>
+                        <div class="flex bg-slate-800 rounded-lg p-1">
+                            <button 
+                                @click="electSettings.type = 'ventricular'"
+                                :class="['px-4 py-1 rounded text-sm transition-all', electSettings.type === 'ventricular' ? 'bg-cyan-600 text-white' : 'text-slate-400']"
+                            >{{ t('ventricular') }}</button>
+                            <button 
+                                @click="electSettings.type = 'atrial'"
+                                :class="['px-4 py-1 rounded text-sm transition-all', electSettings.type === 'atrial' ? 'bg-purple-600 text-white' : 'text-slate-400']"
+                            >{{ t('atrial') }}</button>
+                            <button 
+                                @click="electSettings.type = 'pacemaker'"
+                                :class="['px-4 py-1 rounded text-sm transition-all', electSettings.type === 'pacemaker' ? 'bg-emerald-600 text-white' : 'text-slate-400']"
+                            >{{ t('pacemaker') }}</button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1">
+                        <!-- Action Potential Chart -->
+                        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 flex flex-col">
+                            <h3 class="text-lg font-bold text-slate-300 mb-4">{{ t('apCurve') }}</h3>
+                            <div class="flex-1 relative">
+                                <svg viewBox="0 0 300 200" class="w-full h-full">
+                                    <!-- Grid -->
+                                    <g stroke="#334155" stroke-width="0.5">
+                                        <line x1="30" y1="10" x2="30" y2="190" />
+                                        <line x1="30" y1="150" x2="290" y2="150" stroke-dasharray="4 4"/> <!-- Resting Potential Line -->
+                                    </g>
+                                    <text x="5" y="150" fill="#64748b" font-size="10">-90mV</text>
+                                    <text x="5" y="50" fill="#64748b" font-size="10">+20mV</text>
+
+                                    <!-- Animated Path -->
+                                    <path :d="apPath" fill="none" :stroke="apColor" stroke-width="3" class="heart-beat" stroke-linecap="round" />
+                                    
+                                    <!-- Phase Labels (Conditional) -->
+                                    <g v-if="electSettings.type !== 'pacemaker'" font-size="10" fill="#fff">
+                                        <text x="45" y="100">0</text>
+                                        <text x="65" y="40">1</text>
+                                        <text x="120" y="60">2 (Plateau)</text>
+                                        <text x="180" y="110">3</text>
+                                        <text x="250" y="145">4</text>
+                                    </g>
+                                </svg>
+                            </div>
+                        </div>
+
+                         <!-- Explanation Panel -->
+                         <div class="bg-slate-900 rounded-xl border border-slate-800 p-6 flex flex-col justify-center">
+                            <div v-if="electSettings.type === 'ventricular'">
+                                <h3 class="text-xl font-bold text-cyan-400 mb-2">{{ t('fastResponse') }}</h3>
+                                <ul class="list-disc pl-5 space-y-2 text-slate-300 text-sm">
+                                    <li><strong>Phase 0:</strong> Rapid Na+ influx (Depolarization).</li>
+                                    <li><strong>Phase 2 (Plateau):</strong> Balance of Ca++ influx (L-type) and K+ efflux. Critical for contraction duration.</li>
+                                    <li><strong>Refractory Period:</strong> Long ARP protects against tetanus.</li>
+                                </ul>
+                            </div>
+                            <div v-if="electSettings.type === 'atrial'">
+                                <h3 class="text-xl font-bold text-purple-400 mb-2">{{ t('atrialDiff') }}</h3>
+                                <ul class="list-disc pl-5 space-y-2 text-slate-300 text-sm">
+                                    <li>Shorter Phase 2 (Plateau) than ventricles.</li>
+                                    <li>Triangular morphology.</li>
+                                    <li>More rapid repolarization.</li>
+                                </ul>
+                            </div>
+                            <div v-if="electSettings.type === 'pacemaker'">
+                                <h3 class="text-xl font-bold text-emerald-400 mb-2">{{ t('slowResponse') }} (SA/AV Node)</h3>
+                                <ul class="list-disc pl-5 space-y-2 text-slate-300 text-sm">
+                                    <li><strong>Unstable Phase 4:</strong> Funny current (If) causes spontaneous depolarization.</li>
+                                    <li><strong>Calcium Clock:</strong> Rhythmic Ca++ release from SR coupled with membrane potential (Voltage Clock).</li>
+                                    <li>No true resting potential.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab C: Remodeling -->
+                <div v-if="currentTab === 'remodeling'" class="h-full flex flex-col gap-6">
+                    <div class="flex justify-center gap-4 mb-4">
+                        <button @click="modelSettings.type = 'normal'" :class="['px-4 py-2 rounded-lg border', modelSettings.type === 'normal' ? 'bg-slate-700 border-cyan-500 text-cyan-400' : 'border-slate-700']">{{ t('normal') }}</button>
+                        <button @click="modelSettings.type = 'concentric'" :class="['px-4 py-2 rounded-lg border', modelSettings.type === 'concentric' ? 'bg-slate-700 border-red-500 text-red-400' : 'border-slate-700']">{{ t('concentric') }}</button>
+                        <button @click="modelSettings.type = 'eccentric'" :class="['px-4 py-2 rounded-lg border', modelSettings.type === 'eccentric' ? 'bg-slate-700 border-yellow-500 text-yellow-400' : 'border-slate-700']">{{ t('eccentric') }}</button>
+                    </div>
+
+                    <div class="flex-1 flex flex-col lg:flex-row items-center justify-center gap-12 bg-slate-900 rounded-xl border border-slate-800 p-8 perspective-container overflow-hidden">
+                        
+                        <!-- 3D Heart Visualization (CSS) -->
+                        <div class="relative flex flex-col items-center">
+                            <div 
+                                class="heart-chamber rounded-full border-slate-800 bg-gradient-to-br from-red-900 to-red-950 relative flex items-center justify-center shadow-xl"
+                                :style="heartStyles"
+                            >
+                                <!-- Inner Cavity -->
+                                <div class="rounded-full bg-slate-900/80 w-full h-full scale-[0.9]" :style="{ transform: `scale(${innerScale})` }">
+                                    <div class="w-full h-full flex items-center justify-center text-red-500/30 font-bold text-4xl">LV</div>
+                                </div>
+                            </div>
+                            <p class="mt-6 text-slate-400 text-sm font-mono text-center">
+                                {{ t('wallThickness') }}: {{ computedWallThickness }}<br>
+                                {{ t('chamberRadius') }}: {{ computedRadius }}
+                            </p>
+                        </div>
+
+                        <!-- Information & Formula -->
+                        <div class="max-w-md p-6 bg-slate-800 rounded-lg shadow-lg border-l-4" :class="borderColor">
+                            <h3 class="text-xl font-bold mb-3 text-white">{{ t(modelSettings.type + 'Title') }}</h3>
+                            <div class="mb-4 font-mono bg-slate-950 p-3 rounded text-sm text-cyan-400">
+                                σ = (P × r) / 2h
+                            </div>
+                            <p class="text-slate-300 text-sm mb-3 leading-relaxed">
+                                {{ t(modelSettings.type + 'Desc') }}
+                            </p>
+                            <div class="text-xs text-slate-400">
+                                <strong>Effect on Wall Stress (σ):</strong> {{ t(modelSettings.type + 'Stress') }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab D: Neurohumoral -->
+                <div v-if="currentTab === 'neuro'" class="h-full flex flex-col">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-2xl font-bold text-cyan-400">{{ t('neuroTitle') }}</h2>
+                        <div class="flex items-center gap-3 bg-slate-800 px-4 py-2 rounded-full">
+                            <span class="text-sm font-bold text-slate-300">{{ t('heartFailureMode') }}</span>
+                            <button 
+                                @click="neuroSettings.hfMode = !neuroSettings.hfMode"
+                                :class="['w-12 h-6 rounded-full p-1 transition-colors duration-300', neuroSettings.hfMode ? 'bg-red-500' : 'bg-slate-600']"
+                            >
+                                <div :class="['w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300', neuroSettings.hfMode ? 'translate-x-6' : 'translate-x-0']"></div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <!-- Trigger -->
+                            <div class="lg:col-span-2 flex justify-center">
+                                <div :class="['px-6 py-4 rounded-xl border text-center transition-all duration-500', neuroSettings.hfMode ? 'bg-red-900/30 border-red-500' : 'bg-slate-800 border-slate-700']">
+                                    <h3 class="font-bold text-lg">{{ neuroSettings.hfMode ? t('lowCO') : t('normalState') }}</h3>
+                                    <p class="text-sm text-slate-400 mt-1">{{ neuroSettings.hfMode ? 'MAP < 60mmHg, Hypoperfusion' : 'Stable Hemodynamics' }}</p>
+                                </div>
+                            </div>
+
+                            <!-- SVG Arrows connecting flow -->
+                            <div v-if="neuroSettings.hfMode" class="lg:col-span-2 flex justify-center -my-2">
+                                <span class="text-2xl text-slate-500">↓</span>
+                            </div>
+
+                            <!-- Pathways -->
+                            <div :class="['p-4 rounded-xl border transition-all duration-500', neuroSettings.hfMode ? 'bg-amber-900/20 border-amber-600 opacity-100' : 'opacity-30 grayscale']">
+                                <h4 class="font-bold text-amber-500 mb-2">Sympathetic NS (α1, β1)</h4>
+                                <ul class="text-sm text-slate-300 space-y-2">
+                                    <li class="flex justify-between"><span>HR & Contractility</span> <span class="text-green-400">↑</span></li>
+                                    <li class="flex justify-between"><span>Vasoconstriction</span> <span class="text-green-400">↑</span></li>
+                                    <li class="text-xs text-amber-400 italic mt-2">Immediate Response</li>
+                                </ul>
+                            </div>
+
+                            <div :class="['p-4 rounded-xl border transition-all duration-500', neuroSettings.hfMode ? 'bg-blue-900/20 border-blue-600 opacity-100' : 'opacity-30 grayscale']">
+                                <h4 class="font-bold text-blue-500 mb-2">RAAS Activation</h4>
+                                <ul class="text-sm text-slate-300 space-y-2">
+                                    <li class="flex justify-between"><span>Angiotensin II</span> <span class="text-red-400">Vasoconstriction</span></li>
+                                    <li class="flex justify-between"><span>Aldosterone</span> <span class="text-blue-400">Na+/H2O Retention</span></li>
+                                    <li class="text-xs text-blue-400 italic mt-2">Slower, Sustained Response</li>
+                                </ul>
+                            </div>
+
+                            <!-- Outcome Trade-off -->
+                            <div v-if="neuroSettings.hfMode" class="lg:col-span-2 mt-4 bg-slate-800/80 p-6 rounded-xl border border-slate-600">
+                                <h3 class="font-bold text-center text-white text-lg mb-4">{{ t('theTradeOff') }}</h3>
+                                <div class="flex flex-col md:flex-row gap-4 items-center justify-center">
+                                    <div class="text-center p-3 bg-emerald-900/30 rounded border border-emerald-700 w-full">
+                                        <div class="font-bold text-emerald-400">{{ t('benefit') }}</div>
+                                        <div class="text-sm">Maintains Blood Pressure (MAP)</div>
+                                        <div class="text-xs text-slate-400">Prevents Shock</div>
+                                    </div>
+                                    <div class="text-2xl font-bold text-slate-500">VS</div>
+                                    <div class="text-center p-3 bg-red-900/30 rounded border border-red-700 w-full">
+                                        <div class="font-bold text-red-400">{{ t('cost') }}</div>
+                                        <div class="text-sm">Congestion & Edema</div>
+                                        <div class="text-xs text-slate-400">Increased Afterload & Workload</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, reactive } = Vue;
+
+        createApp({
+            setup() {
+                // --- State ---
+                const currentTab = ref('pvLoop');
+                const lang = ref('sc'); // 'sc' or 'tc'
+                
+                const pvSettings = reactive({
+                    preload: 100, // mL (EDV)
+                    afterload: 1.5, // mmHg/mL (Ea)
+                    contractility: 1.5 // mmHg/mL (Ees)
+                });
+
+                const electSettings = reactive({
+                    type: 'ventricular'
+                });
+
+                const modelSettings = reactive({
+                    type: 'normal'
+                });
+
+                const neuroSettings = reactive({
+                    hfMode: false
+                });
+
+                const tabs = {
+                    pvLoop: { labelKey: 'cardiacPump', icon: '🔄' },
+                    electrical: { labelKey: 'elecMech', icon: '⚡' },
+                    remodeling: { labelKey: 'remodeling', icon: '❤️' },
+                    neuro: { labelKey: 'neuroTitle', icon: '🧠' },
+                };
+
+                // --- Dictionary ---
+                const dictionary = {
+                    sc: {
+                        subtitle: '交互式兽医心血管生理学 (Chapter 2)',
+                        cardiacPump: '心脏泵功能 (PV Loop)',
+                        elecMech: '电机械耦合',
+                        remodeling: '心脏重塑 & 心衰',
+                        neuroTitle: '神经体液反应',
+                        volume: '容积 (Volume)',
+                        pressure: '压力 (Pressure)',
+                        preload: '前负荷 (Preload)',
+                        afterload: '后负荷 (Afterload)',
+                        contractility: '收缩性 (Contractility)',
+                        sv: '每搏输出量 (SV)',
+                        svTooltip: '每搏输出量是舒张末期容积与收缩末期容积之差 (EDV - ESV)。受前负荷、后负荷 (Ea) 和收缩力 (Ees) 共同影响。',
+                        ef: '射血分数 (EF)',
+                        sw: '每搏功 (Stroke Work)',
+                        preloadDesc: '增加 EDV。根据 Frank-Starling 定律，增加前负荷会增加 SV。',
+                        afterloadDesc: '增加动脉弹性 (Ea)。增加后负荷会使回路变高变窄，降低 SV。',
+                        contractilityDesc: '增加 Ees 斜率。增强收缩力会增加 SV 并降低 ESV。',
+                        clinicalPearl: '临床要点：',
+                        pvClinicalText: '在扩张型心肌病中，收缩力 (Ees) 降低。在二尖瓣关闭不全中，由于低阻抗途径（反流），后负荷 (Ea) 通常较低。',
+                        fluidResponder: '流体响应区：陡峭的 Frank-Starling 曲线',
+                        apCurve: '动作电位 (Action Potential)',
+                        ventricular: '心室肌',
+                        atrial: '心房肌',
+                        pacemaker: '起搏细胞',
+                        fastResponse: '快反应电位',
+                        slowResponse: '慢反应电位',
+                        atrialDiff: '心房特征',
+                        normal: '正常',
+                        concentric: '向心性肥大',
+                        eccentric: '离心性肥大',
+                        wallThickness: '室壁厚度',
+                        chamberRadius: '腔室半径',
+                        normalTitle: '正常心脏',
+                        concentricTitle: '向心性肥大 (Concentric Hypertrophy)',
+                        eccentricTitle: '离心性肥大 (Eccentric Hypertrophy)',
+                        normalDesc: '正常的室壁应力与几何形状。',
+                        concentricDesc: '对压力过负荷（如高血压、主动脉狭窄）的反应。肌小节并联复制。壁增厚以降低室壁应力 (LaPlace)。',
+                        eccentricDesc: '对容量过负荷（如二尖瓣反流）的反应。肌小节串联复制。腔室扩张，壁相对变薄。',
+                        concentricStress: '正常化 (代偿)',
+                        eccentricStress: '增加 (代偿失调)',
+                        heartFailureMode: '心力衰竭模式',
+                        lowCO: '低心输出量 / 低血压',
+                        normalState: '正常状态',
+                        theTradeOff: '生理权衡 (The Trade-off)',
+                        benefit: '益处',
+                        cost: '代价'
+                    },
+                    tc: {
+                        subtitle: '交互式獸醫心血管生理學 (Chapter 2)',
+                        cardiacPump: '心臟泵功能 (PV Loop)',
+                        elecMech: '電機機械耦合',
+                        remodeling: '心臟重塑 & 心衰',
+                        neuroTitle: '神經體液反應',
+                        volume: '容積 (Volume)',
+                        pressure: '壓力 (Pressure)',
+                        preload: '前負荷 (Preload)',
+                        afterload: '後負荷 (Afterload)',
+                        contractility: '收縮性 (Contractility)',
+                        sv: '每搏輸出量 (SV)',
+                        svTooltip: '每搏輸出量是舒張末期容積與收縮末期容積之差 (EDV - ESV)。受前負荷、後負荷 (Ea) 和收縮力 (Ees) 共同影響。',
+                        ef: '射血分數 (EF)',
+                        sw: '每搏功 (Stroke Work)',
+                        preloadDesc: '增加 EDV。根據 Frank-Starling 定律，增加前負荷會增加 SV。',
+                        afterloadDesc: '增加動脈彈性 (Ea)。增加後負荷會使回路變高變窄，降低 SV。',
+                        contractilityDesc: '增加 Ees 斜率。增強收縮力會增加 SV 並降低 ESV。',
+                        clinicalPearl: '臨床要點：',
+                        pvClinicalText: '在擴張型心肌病中，收縮力 (Ees) 降低。在二尖瓣關閉不全中，由於低阻抗途徑（反流），後負荷 (Ea) 通常較低。',
+                        fluidResponder: '流體響應區：陡峭的 Frank-Starling 曲線',
+                        apCurve: '動作電位 (Action Potential)',
+                        ventricular: '心室肌',
+                        atrial: '心房肌',
+                        pacemaker: '起搏細胞',
+                        fastResponse: '快反應電位',
+                        slowResponse: '慢反應電位',
+                        atrialDiff: '心房特徵',
+                        normal: '正常',
+                        concentric: '向心性肥大',
+                        eccentric: '離心性肥大',
+                        wallThickness: '室壁厚度',
+                        chamberRadius: '腔室半徑',
+                        normalTitle: '正常心臟',
+                        concentricTitle: '向心性肥大 (Concentric Hypertrophy)',
+                        eccentricTitle: '離心性肥大 (Eccentric Hypertrophy)',
+                        normalDesc: '正常的室壁應力與幾何形狀。',
+                        concentricDesc: '對壓力過負荷（如高血壓、主動脈狹窄）的反應。肌小節並聯複製。壁增厚以降低室壁應力 (LaPlace)。',
+                        eccentricDesc: '對容量過負荷（如二尖瓣反流）的反應。肌小節串聯複製。腔室擴張，壁相對變薄。',
+                        concentricStress: '正常化 (代償)',
+                        eccentricStress: '增加 (代償失調)',
+                        heartFailureMode: '心力衰竭模式',
+                        lowCO: '低心輸出量 / 低血壓',
+                        normalState: '正常狀態',
+                        theTradeOff: '生理權衡 (The Trade-off)',
+                        benefit: '益處',
+                        cost: '代價'
+                    }
+                };
+
+                // --- Methods ---
+                const t = (key) => dictionary[lang.value][key] || key;
+                const toggleLang = () => lang.value = lang.value === 'sc' ? 'tc' : 'sc';
+
+                // --- Logic: PV Loop ---
+                // Constants based on typical dog values scaled for visualization
+                const V0 = 10; // Unstressed volume
+                
+                const computedSV = computed(() => {
+                    // SV calculation based on coupling: SV = (EDV - V0) / (1 + Ea/Ees)
+                    // Derived from Pes = Ees(Ves - V0) and Pes = Ea * SV
+                    const edv = pvSettings.preload;
+                    const ea = pvSettings.afterload;
+                    const ees = pvSettings.contractility;
+                    const sv = (edv - V0) * (1 / (1 + ea / ees));
+                    // Clamp logic for extreme values
+                    return Math.max(0, Math.round(sv));
+                });
+
+                const computedEF = computed(() => {
+                     if (pvSettings.preload <= 0) return 0;
+                     return Math.round((computedSV.value / pvSettings.preload) * 100);
+                });
+
+                const computedSW = computed(() => {
+                    // Simple approximation: SV * Mean Pressure (approx Pes)
+                    // Pes = Ea * SV
+                    const pes = pvSettings.afterload * computedSV.value;
+                    return Math.round(computedSV.value * pes * 0.0133 * 1000); // rough unit conversion for "Work"
+                });
+
+                const espvrCoords = computed(() => {
+                    // Calculate endpoint of Ees line for display
+                    // y = Ees * (x - V0)
+                    // At x = 300 (chart max width approx), what is y?
+                    // In SVG coords: Y is inverted. 260 is 0 pressure.
+                    const slope = pvSettings.contractility; 
+                    const x_max = 150; // limited by pressure
+                    const y_val = slope * (x_max - V0);
+                    
+                    // Convert to SVG coords
+                    // X: 40 + x_val * 2
+                    // Y: 260 - y_val
+                    return {
+                        x: 40 + (x_max * 2), 
+                        y: 260 - (y_val * 1.5) // scale factor
+                    };
+                });
+
+                const pvLoopPath = computed(() => {
+                    const edv = pvSettings.preload;
+                    const sv = computedSV.value;
+                    const esv = edv - sv;
+                    
+                    // Pressure points
+                    // P_ed determined by EDPVR curve (approx exponential)
+                    // P = a * e^(b*V)
+                    const ped = 2 * Math.exp(0.02 * edv);
+                    
+                    // P_es determined by Ees line
+                    // P = Ees * (esv - V0)
+                    const pes = pvSettings.contractility * (esv - V0);
+
+                    // Convert to SVG
+                    // X scale: 1 unit = 2px. Offset 40.
+                    // Y scale: 1 unit = 1.5px. Offset 260 (inverted).
+                    const x_edv = 40 + (edv * 2);
+                    const y_ped = 260 - (ped * 1.5);
+                    
+                    const x_esv = 40 + (esv * 2);
+                    const y_pes = 260 - (pes * 1.5);
+
+                    // Construct Path
+                    // 1. Start Bottom Right (EDV, PED)
+                    // 2. Isovolumetric Contraction to (EDV, PES) - Actually usually slightly slanted or curves up to opening pressure
+                    //    For simplification, go vertical to P_opening (approx Pes for now)
+                    // 3. Ejection to (ESV, PES) - dome shape
+                    // 4. Isovol Relaxation to (ESV, P_low)
+                    // 5. Filling curve back to start
+
+                    return `
+                        M ${x_edv} ${y_ped}
+                        L ${x_edv} ${y_pes} 
+                        Q ${(x_edv + x_esv)/2} ${y_pes - 20} ${x_esv} ${y_pes}
+                        L ${x_esv} ${260 - (2 * Math.exp(0.02 * esv) * 1.5)}
+                        Q ${(x_edv + x_esv)/2} 260 ${x_edv} ${y_ped}
+                    `;
+                });
+
+                const pvPoints = computed(() => {
+                    const edv = pvSettings.preload;
+                    const sv = computedSV.value;
+                    const esv = edv - sv;
+                    const ped = 2 * Math.exp(0.02 * edv);
+                    const pes = pvSettings.contractility * (esv - V0);
+
+                    return {
+                        A: { x: 40 + (edv * 2), y: 260 - (ped * 1.5) },
+                        C: { x: 40 + (esv * 2), y: 260 - (pes * 1.5) }
+                    };
+                });
+
+                // --- Logic: Electrical ---
+                const apColor = computed(() => {
+                    if (electSettings.type === 'ventricular') return '#22d3ee';
+                    if (electSettings.type === 'atrial') return '#a855f7';
+                    return '#10b981';
+                });
+
+                const apPath = computed(() => {
+                    // SVG 300x200
+                    // Base line Y = 150 (-90mV)
+                    // Peak Y = 50 (+20mV)
+                    
+                    if (electSettings.type === 'ventricular') {
+                        // Fast Upstroke, Plateau, Repolarization
+                        return "M 30 150 L 45 50 L 60 60 L 180 60 L 250 150 L 290 150"; 
+                    } else if (electSettings.type === 'atrial') {
+                        // Triangular
+                        return "M 30 150 L 45 50 L 55 65 L 100 150 L 290 150";
+                    } else {
+                        // Pacemaker: Slope phase 4, softer upstroke
+                        return "M 30 150 Q 80 130 100 120 L 120 50 L 150 150 Q 200 130 220 120";
+                    }
+                });
+
+                // --- Logic: Remodeling (CSS 3D) ---
+                const heartStyles = computed(() => {
+                    let size = 128; // w-32
+                    let border = 20;
+                    let color = '#7f1d1d'; // red-900
+
+                    if (modelSettings.type === 'concentric') {
+                        size = 110; 
+                        border = 35; // Thick wall
+                    } else if (modelSettings.type === 'eccentric') {
+                        size = 192; // w-48
+                        border = 8; // Thin wall
+                    }
+
+                    return {
+                        width: `${size}px`,
+                        height: `${size}px`,
+                        borderWidth: `${border}px`,
+                        borderColor: '#7f1d1d',
+                    };
+                });
+
+                const innerScale = computed(() => {
+                    // Controls the size of the cavity visual
+                    if (modelSettings.type === 'concentric') return 0.6;
+                    if (modelSettings.type === 'eccentric') return 0.95;
+                    return 0.8;
+                });
+                
+                const computedWallThickness = computed(() => {
+                     if (modelSettings.type === 'concentric') return "High (↑)";
+                     if (modelSettings.type === 'eccentric') return "Low/Normal (↔)";
+                     return "Normal";
+                });
+                
+                const computedRadius = computed(() => {
+                     if (modelSettings.type === 'concentric') return "Normal/Low";
+                     if (modelSettings.type === 'eccentric') return "Increased (↑↑)";
+                     return "Normal";
+                });
+
+                const borderColor = computed(() => {
+                     if (modelSettings.type === 'concentric') return "border-red-500";
+                     if (modelSettings.type === 'eccentric') return "border-yellow-500";
+                     return "border-cyan-500";
+                });
+
+                return {
+                    currentTab,
+                    tabs,
+                    lang,
+                    toggleLang,
+                    t,
+                    pvSettings,
+                    espvrCoords,
+                    pvLoopPath,
+                    computedSV,
+                    computedEF,
+                    computedSW,
+                    pvPoints,
+                    electSettings,
+                    apPath,
+                    apColor,
+                    modelSettings,
+                    heartStyles,
+                    innerScale,
+                    neuroSettings,
+                    computedWallThickness,
+                    computedRadius,
+                    borderColor
+                };
+            }
+        }).mount('#app');
+    </script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
